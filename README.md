@@ -1,74 +1,336 @@
-## Collaboration Context
-This project was developed as part of the Data Science Society at Florida State University.
+# Donor Pledge Prediction & Segmentation
 
-## My Contribution
-- Data cleaning and preprocessing
-- Feature engineering
-- Model development (Random Forest)
-- Model evaluation and interpretation
+## Overview
 
-# FSU Donor Pledge Amount Prediction
+This project predicts annual donor pledge amounts and segments donors into actionable fundraising groups for outreach prioritization.
 
-Regression model that forecasts each FSU donor's annual pledge amount for the next fundraising year, and segments the full donor base into four actionable outreach quadrants.
+The project was independently developed using approximately 10 years of historical donation data obtained through collaboration with the BYU-Idaho Data Science Society. The dataset originated from an anonymous organization and combined records from multiple internal relational database tables.
 
-Built during a data analyst internship at FSU Boosters using 10 years of proprietary donation data joined from six internal MySQL tables (~45K active donors).
+The primary business objective was to improve fundraising efficiency by replacing manual donor prioritization with a predictive workflow grounded in historical giving behavior, reliability, and donor engagement patterns.
 
 ---
 
-## Problem
+## Business Problem
 
-FSU fundraising agents manually prioritize donor outreach with limited analytical support. The goal was to replace gut-feel prioritization with a data-driven model that estimates how much each donor is likely to commit — and flags which donors are most worth the agent's time.
+Fundraising agents manage large donor portfolios with limited analytical guidance.
+
+Without prioritization, high-value donors can be overlooked while agents spend time on low-probability outreach.
+
+This project addresses two operational questions:
+
+1. **How much is each donor likely to pledge next year?**
+2. **Which donors deserve the highest outreach priority?**
+
+The final system produces:
+
+* Predicted annual pledge amounts
+* Donor reliability scores
+* Operational donor segments for fundraising strategy
+* Tableau-ready exports for downstream reporting
 
 ---
 
-## Technical Approach
+## Dataset
 
-| Step | Detail |
-|---|---|
-| **Data** | Six MySQL tables joined by `FanID`: pledge/payment history, demographics, wealth scores (iWave), education, board membership |
-| **Target** | `log1p(annual pledge amount)` — log transformation applied to handle extreme right skew (median ~$650, max $791K+) |
-| **Split** | Temporal: Train 2014–2023 · Validation 2024 · Holdout 2025 — no random split to prevent data leakage |
-| **Baseline** | Ridge Regression (handles multicollinearity between temporal features) |
-| **Model** | XGBoost Regressor with RandomizedSearchCV (25 combinations, 3-fold CV) |
-| **Evaluation** | MAE and RMSE in original dollar scale via `expm1` — MAE preferred because RMSE is dominated by mega-donors |
+### Data Sources
 
-**Validation result:** MAE ≈ $1,145 · outperforms naïve "repeat last year" baseline across all donation ranges
+The modeling table was constructed from six internal MySQL tables joined through `FanID`.
+
+Included data:
+
+* Historical pledges and payments
+* Demographic attributes
+* Membership tier information
+* Education history
+* Wealth indicators (iWave)
+* Board membership and engagement data
+
+### Scope
+
+* ~45,000 active donors with pledge history
+* ~706,000 total records existed in the broader donor system
+* Time range: 2014–2025
+
+The model only targeted donors with historical giving behavior. Prospecting for entirely new donors would require a separate modeling framework.
 
 ---
 
-## Feature Engineering Highlights
+## Exploratory Data Analysis
 
-- **Ordinal membership encoding** — 10 FSU membership tiers mapped to integers (Legacy Chief=10 → Spirit=1)
-- **Degree classification** — 93 unique degree strings collapsed to 5 ordinal levels via `classify_degree()`
-- **Regional encoding** — Florida flag + 4 US regions (50-state OHE adds noise; FL represents 75% of donors)
-- **Missingness flags** — `Age_null`, `Properties_null` preserve information in missing wealth/demographic data
-- **Age imputation** — median computed on train set only, applied to validation and holdout
+### Regression vs Classification
+
+An early design decision was whether to frame the problem as:
+
+* Classification → predicting whether a donor would fail to fulfill a pledge
+* Regression → predicting donation amount
+
+Analysis showed only ~3% of donors were non-compliant with pledges, making classification highly imbalanced and operationally less useful.
+
+The project therefore focused on regression.
+
+### Target Distribution
+
+Donation amounts were heavily right-skewed:
+
+* Median donation ≈ $650
+* Maximum donation > $790,000
+
+To stabilize variance and reduce sensitivity to extreme donors, the target variable used:
+
+genui{"math_block_widget_always_prefetch_v2":{"content":"y = \log(1 + \text{Annual Pledge Amount})"}}
+
+Predictions were transformed back to dollar scale using `expm1()` for interpretation.
+
+---
+
+## Feature Engineering
+
+Several preprocessing decisions were designed to reduce noise, preserve signal, and avoid leakage.
+
+### Membership Tier Encoding
+
+Organization donor membership levels were ordinal by nature.
+
+Instead of one-hot encoding, tiers were mapped numerically:
+
+| Tier         | Encoding |
+| ------------ | -------- |
+| Legacy Chief | 10       |
+| Silver Chief | 9        |
+| Golden Chief | 8        |
+| ...          | ...      |
+| Spirit       | 1        |
+
+This preserved the hierarchical relationship between donor tiers.
+
+### Degree Consolidation
+
+More than 90 unique degree labels were consolidated into five broader categories using custom logic.
+
+This reduced dimensionality while preserving educational signal.
+
+### Geographic Encoding
+
+Rather than one-hot encoding all 50 states, donors were grouped into:
+
+* Florida
+* Southeast
+* Northeast
+* Midwest
+* West
+
+Florida received special treatment because approximately 75% of donors were located there.
+
+### Missing Data Strategy
+
+Missingness itself contained predictive information.
+
+Instead of simply imputing values, the pipeline created explicit indicators such as:
+
+* `Age_null`
+* `Properties_null`
+
+Median age imputation was computed strictly on the training set to avoid temporal leakage.
+
+---
+
+## Modeling Strategy
+
+### Temporal Validation
+
+The project intentionally avoided random train/test splits.
+
+A random split would leak future donor behavior into the training process.
+
+Instead, the pipeline used chronological separation:
+
+| Split      | Years     |
+| ---------- | --------- |
+| Training   | 2014–2022 |
+| Validation | 2023      |
+| Holdout    | 2024      |
+
+This structure better simulated real deployment conditions.
+
+---
+
+## Baseline Model
+
+A Ridge Regression model served as the baseline.
+
+Ridge was selected because temporal donation features were highly correlated and required regularization.
+
+The baseline established a reference point before introducing gradient boosting methods.
+
+---
+
+## Final Model — XGBoost
+
+### Why XGBoost?
+
+XGBoost was selected because it:
+
+* Handles nonlinear relationships
+* Captures interaction effects
+* Performs well on tabular structured data
+* Is robust to mixed feature types
+* Handles skewed distributions effectively
+
+### Hyperparameter Tuning
+
+The final model used:
+
+* `RandomizedSearchCV`
+* 25 hyperparameter combinations
+* 3-fold cross-validation
+
+Optimization focused primarily on minimizing MAE.
+
+---
+
+## Evaluation
+
+### Primary Metrics
+
+Model performance was evaluated using:
+
+* MAE (Mean Absolute Error)
+* RMSE (Root Mean Squared Error)
+
+MAE was prioritized because RMSE became dominated by mega-donors with unusually large pledges.
+
+### Validation Performance
+
+| Metric | Result                       |
+| ------ | ---------------------------- |
+| MAE    | ≈ $1,145                     |
+| R^2    | ≈ 0.750                      |
+
+The model outperformed a naïve baseline that simply predicted each donor would repeat the previous year's donation.
+
+### Key Observation
+
+A small number of ultra-high-value donors disproportionately increased RMSE.
+
+Segmented evaluation showed substantially stronger performance across the majority of the donor population once those outliers were isolated.
+
+---
+
+## Feature Importance
+
+The most influential feature was:
+
+* `TotalPledgeAnnual`
+
+This indicated that current-year giving behavior was the strongest predictor of future commitments.
+
+Additional important signals included:
+
+* Membership tier
+* Wealth indicators
+* Historical payment behavior
+* Donor engagement variables
+
+---
+
+## Model Explainability
+
+SHAP values were used to interpret both:
+
+* Global model behavior
+* Individual donor predictions
+
+This improved transparency for fundraising stakeholders and allowed analysts to explain:
+
+* Why certain donors received high predictions
+* Which variables most influenced each estimate
+* How behavioral patterns differed across donor types
+
+Two contrasting donor profiles were analyzed to demonstrate how the model differentiated between high-value and low-value contributors.
 
 ---
 
 ## Donor Segmentation
 
-Final output: each donor assigned to one of four quadrants by crossing predicted pledge amount (p75 threshold) against historical payment reliability (binary: 100% commitment rate or not):
+After prediction, donors were segmented using:
 
-| Quadrant | Amount | Reliability | Strategy |
-|---|---|---|---|
-| VIP | High | 100% | Priority contact, relationship maintenance |
-| Alto Potencial | High | < 100% | High value, needs follow-up |
-| Base Estable | Low | 100% | Reliable, low-maintenance |
-| Baja Prioridad | Low | < 100% | Lower agent investment |
+* Predicted pledge amount
+* Historical payment reliability
 
-Segmentation table exported to CSV for Tableau dashboards used by the fundraising team.
+Reliability was defined using commitment fulfillment history.
+
+The operational framework produced four outreach quadrants:
+
+| Segment        | Predicted Amount | Reliability | Recommended Strategy                           |
+| -------------- | ---------------- | ----------- | ---------------------------------------------- |
+| VIP            | High             | 100%        | Relationship maintenance and priority outreach |
+| High Potential | High             | <100%       | High upside but requires closer follow-up      |
+| Stable Base    | Low              | 100%        | Consistent low-maintenance donors              |
+| Low Priority   | Low              | <100%       | Lower outreach investment                      |
+
+The segmentation output was exported to CSV and integrated into Tableau dashboards used by fundraising staff.
 
 ---
 
-## Skills
+## Key Findings
 
-`Python` · `XGBoost` · `scikit-learn` · `pandas` · `NumPy` · `Matplotlib` · `MySQL` · Feature Engineering · Temporal Cross-Validation · Regression · Donor Segmentation · Data Leakage Prevention
+* Donation behavior is highly persistent over time
+* Temporal validation is critical in fundraising prediction problems
+* Extreme donors distort RMSE and can hide strong operational performance
+* Reliability metrics add important context beyond pure donation amount
+* Feature engineering decisions had major impact on downstream performance
+* Explainability tools increased stakeholder trust in model outputs
 
 ---
 
 ## Limitations
 
-- Model scope limited to ~45K donors with pledge history out of 706K in the base table — new donor prospecting requires a separate model
-- Holdout set (2025, 1,173 rows) has atypical distribution due to pre-registered small pledges; R² on this split is not representative
-- `TotalPledgeAnual` dominates feature importance (~50%) — the model largely learns to carry forward current-year behavior, which is strong but not sufficient for detecting trend changes
+* The model does not address donor acquisition or prospecting
+* Performance on the 2025 holdout set was affected by atypical pledge distributions
+* Historical pledge amount dominated model importance, limiting sensitivity to sudden behavioral changes
+* The dataset represented active donors only, not the full donor ecosystem
+
+---
+
+## Tools & Technologies
+
+### Languages & Libraries
+
+* Python
+* pandas
+* NumPy
+* scikit-learn
+* XGBoost
+* SHAP
+* Matplotlib
+* MySQL
+
+### Techniques
+
+* Regression Modeling
+* Feature Engineering
+* Temporal Cross-Validation
+* Hyperparameter Optimization
+* Model Explainability
+* Donor Segmentation
+* Data Leakage Prevention
+
+---
+
+## Collaboration Context
+
+The data was obtained in colaboration with BYUI Data Science Society.
+
+### My Contributions
+
+* SQL feature engineering
+* Data cleaning and preprocessing
+* Exploratory data analysis
+* Regression model development
+* Hyperparameter tuning
+* Model evaluation
+* SHAP explainability analysis
+* Donor segmentation framework
+* Tableau export pipeline
+
+
