@@ -53,7 +53,7 @@ COLUMNS = [
 plt.style.use('seaborn-v0_8-whitegrid')
 COLORS = {'train': '#2196F3', 'val': '#4CAF50', 'test': '#FF9800', 'highlight': '#E91E63'}
 
-PROJECT_ROOT = Path(r'c:\Users\alexa\OneDrive\Desktop\BS- Data Science\Data-Science\Full Projects\Donors')
+PROJECT_ROOT = Path(r'Full Projects\Donors')
 DATA_DIR = PROJECT_ROOT / 'data'
 
 df = pd.read_csv(DATA_DIR / 'modeling_table.csv', header=None, names=COLUMNS)
