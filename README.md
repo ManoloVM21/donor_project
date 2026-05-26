@@ -8,6 +8,7 @@ The project was independently developed using approximately 10 years of historic
 
 The primary business objective was to improve fundraising efficiency by replacing manual donor prioritization with a predictive workflow grounded in historical giving behavior, reliability, and donor engagement patterns.
 
+**Link to Notebook and Analysis: https://manolovm21.github.io/donor_project/**
 ---
 
 ## Business Problem
